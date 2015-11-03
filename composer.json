@@ -14,7 +14,7 @@
     "require": {},
     "autoload": {
         "psr-4": {
-            "Elcodi\\Bundle\\GeoBundle\\": ""
+            "Visca\\Bundle\\DoctrineBundle\\": ""
         }
     }
 }

@@ -1,0 +1,16 @@
+{% autoescape false %}
+<?php
+{{ namespace is defined ? "\nnamespace " ~ namespace ~ ";" : "" }}
+
+/**
+ * Class {{ className }}.
+ *
+ * DO NOT MODIFY - THIS CLASS IS AUTO GENERATED.
+ */
+class {{ className }} {{- extends is defined ? " extends " ~ extends : "" }}
+{
+{% for name, value in constantsList %}
+    const {{ name }} = {{ value }};
+{% endfor %}
+}
+{% endautoescape %}

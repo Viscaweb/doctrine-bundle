@@ -1,0 +1,88 @@
+services:
+    # Unique Class Values Generator
+    visca_doctrine.generator.unique_fields:
+        class: Visca\Bundle\DoctrineBundle\Generator\UniqueFieldsGenerator
+        arguments:
+          - @visca_doctrine.naming.classes
+          - @visca_doctrine.naming.constant
+          - @visca_doctrine.templating.engine
+          - '%visca_doctrine.generator.unique_values_class.template%'
+
+    # Metadata collector
+    visca_doctrine.mapping.metadata_collector:
+        class: Visca\Bundle\DoctrineBundle\Mapping\Collector\MetadataCollector
+        arguments:
+          - @visca_doctrine.kernel
+          - @visca_doctrine.manager_registry
+
+    # Metadata filter
+    visca_doctrine.mapping.collector.filter.with_unique_key:
+        class: Visca\Bundle\DoctrineBundle\Mapping\Collector\Filter\WithUniqueKeyCollectionFilter
+        arguments:
+          -
+            - @visca_doctrine.generator.code_and_entity_fields
+            - @visca_doctrine.generator.unique_fields
+
+    # Class naming
+    visca_doctrine.naming.classes.default:
+        class: Visca\Bundle\DoctrineBundle\Naming\Classes\DefaultClassNaming
+
+    # Constant naming
+    visca_doctrine.naming.constants.default:
+        class: Visca\Bundle\DoctrineBundle\Naming\Constant\DefaultConstantNaming
+
+    # Validators
+    visca_doctrine.validator.accessor:
+        class: Visca\Bundle\DoctrineBundle\Validator\AccessorValidator
+
+    visca_doctrine.validator.assertions.nullable_property_has_null_in_return_type:
+        class: Visca\Bundle\DoctrineBundle\Validator\Assertions\NullablePropertyHasNullInReturnTypeAssertion
+        tags:
+          - { name: visca_doctrine.validator.accessor.assertion }
+
+    # Factories
+    visca_doctrine.repository.factory:
+        class: Visca\Bundle\DoctrineBundle\Repository\Factory\RepositoryFactory
+        arguments:
+            - @visca_doctrine.repository.caching.chain
+            - @visca_doctrine.query.query_builder.predicate_builder
+
+    # Query builder
+    visca_doctrine.query.query_builder.predicate_builder:
+        class: Visca\Bundle\DoctrineBundle\Query\QueryBuilder\PredicateBuilder
+
+    # ------------------------------------------------------
+    # CACHING - THIS SHOULD BE SPLITTED INTO ANOTHER PACKAGE
+    # ------------------------------------------------------
+
+    # Factory
+    visca_doctrine.repository.caching.factory.result_caching_strategy:
+        class: Visca\Bundle\DoctrineBundle\Repository\Caching\Factory\ResultCachingStrategyFactory
+
+    # Strategies
+    visca_doctrine.repository.caching.one_minute:
+        class: Visca\Bundle\DoctrineBundle\Repository\Caching\CacheStrategy
+        factory_service: visca_doctrine.repository.caching.factory.result_caching_strategy
+        factory_method: create
+        arguments:
+            - true
+            - 60
+
+    visca_doctrine.repository.caching.one_year:
+        class: Visca\Bundle\DoctrineBundle\Repository\Caching\CacheStrategy
+        factory_service: visca_doctrine.repository.caching.factory.result_caching_strategy
+        factory_method: create
+        arguments:
+            - true
+            - 31536000 # 365 * 86400
+
+    visca_doctrine.repository.caching.no_cache:
+        class: Visca\Bundle\DoctrineBundle\Repository\Caching\NoCacheStrategy
+        factory_service: visca_doctrine.repository.caching.factory.result_caching_strategy
+        factory_method: create
+        arguments:
+            - false
+
+    # Chain
+    visca_doctrine.repository.caching.chain:
+        class: Visca\Bundle\DoctrineBundle\Repository\Caching\Chain\RepositoryCachingStrategyChain
