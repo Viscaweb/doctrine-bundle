@@ -2,7 +2,6 @@
 
 namespace Visca\Bundle\DoctrineBundle\Repository\Abstracts;
 
-use DateTime;
 use Doctrine\Common\Collections\Criteria;
 use Doctrine\Common\Collections\Selectable;
 use Doctrine\Common\Persistence\ObjectRepository;
@@ -11,6 +10,7 @@ use Doctrine\ORM\LazyCriteriaCollection;
 use Doctrine\ORM\Mapping\ClassMetadata;
 use Doctrine\ORM\NoResultException;
 use Doctrine\ORM\ORMException;
+use Doctrine\ORM\ORMInvalidArgumentException;
 use Doctrine\ORM\Query;
 use Doctrine\ORM\QueryBuilder;
 use Visca\Bundle\DoctrineBundle\Query\QueryBuilder\Interfaces\PredicateBuilderInterface;
@@ -49,8 +49,10 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
     /**
      * Initializes a new <tt>EntityRepository</tt>.
      *
-     * @param EntityManager                  $entityManager    The EntityManager to use.
-     * @param ClassMetadata                  $class            The class descriptor.
+     * @param EntityManager                  $entityManager The EntityManager
+     *                                                      to use.
+     * @param ClassMetadata                  $class         The class
+     *                                                      descriptor.
      * @param ResultCachingStrategyInterface $resultCaching
      * @param PredicateBuilderInterface      $predicateBuilder
      */
@@ -76,17 +78,72 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
      */
     public function find($id)
     {
-        $where = sprintf(
-            'q.%s = :id',
-            $this->class->getSingleIdentifierColumnName()
-        );
+        // Accept both composite key and single key
+        if (!is_array($id)) {
+            if ($this->class->isIdentifierComposite) {
+                throw ORMInvalidArgumentException::invalidCompositeIdentifier();
+            }
+
+            $id = [$this->class->identifier[0] => $id];
+        }
+
+        // Do not support object, only scalar value
+        foreach ($id as $value) {
+            if (is_object($value)) {
+                throw ORMInvalidArgumentException::invalidIdentifierBindingEntity(
+                );
+            }
+        }
+
+        $sortedIdentifiers = [];
+
+        foreach ($this->class->identifier as $identifier) {
+            if (!isset($id[$identifier])) {
+                throw ORMException::missingIdentifierField(
+                    $this->class->name,
+                    $identifier
+                );
+            }
+
+            $sortedIdentifiers[$identifier] = $id[$identifier];
+            unset($id[$identifier]);
+        }
+
+        if ($id) {
+            throw ORMException::unrecognizedIdentifierFields(
+                $this->class->name,
+                array_keys($id)
+            );
+        }
 
         try {
-            $query = $this
-                ->createQueryBuilder('q')
-                ->where($where)
-                ->setParameter('id', $id)
-                ->getQuery();
+            $alias = 'q';
+
+            $queryBuilder = $this
+                ->createQueryBuilder($alias);
+
+            $wherePredicates = [];
+
+            foreach ($sortedIdentifiers as $identifier => $value) {
+                $wherePredicates[] = $queryBuilder
+                    ->expr()
+                    ->eq(
+                        $alias.'.'.$identifier,
+                        ':'.$identifier
+                    );
+            }
+
+            $andPredicates = $queryBuilder->expr();
+
+            $queryBuilder
+                ->add(
+                    'where',
+                    call_user_func_array([$andPredicates, 'andX'], $wherePredicates)
+                );
+
+            $queryBuilder->setParameters($sortedIdentifiers);
+
+            $query = $queryBuilder->getQuery();
 
             $this->setCacheStrategy($query);
 
@@ -94,25 +151,6 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
         } catch (NoResultException $ex) {
             return;
         }
-    }
-
-    /**
-     * Creates a new QueryBuilder instance that is pre populated for this entity name.
-     *
-     * @param string $alias
-     * @param string $indexBy The index for the from.
-     *
-     * @return QueryBuilder
-     */
-    public function createQueryBuilder($alias, $indexBy = null)
-    {
-        $queryBuilder = $this
-            ->entityManager
-            ->createQueryBuilder()
-            ->select($alias)
-            ->from($this->entityName, $alias, $indexBy);
-
-        return $queryBuilder;
     }
 
     /**
@@ -153,67 +191,6 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
     }
 
     /**
-     * @param QueryBuilder $queryBuilder
-     * @param array        $criteria
-     * @param array        $orderBy
-     * @param int|null     $limit
-     * @param int|null     $offset
-     *
-     * @return Query
-     */
-    protected function createQueryWith(
-        QueryBuilder $queryBuilder,
-        array $criteria,
-        array $orderBy = [],
-        $limit = null,
-        $offset = null
-    ) {
-        if (count($criteria) > 0) {
-            $wherePredicates = $this
-                ->predicateBuilder
-                ->build(
-                    $queryBuilder,
-                    $criteria
-                );
-
-            $queryBuilder = $this
-                ->createQueryBuilder('q')
-                ->where($wherePredicates);
-
-            foreach ($criteria as $columnName => $value) {
-                if (is_array($value)) {
-                    $queryBuilder->setParameter(
-                        $columnName,
-                        $value,
-                        \Doctrine\DBAL\Connection::PARAM_STR_ARRAY
-                    );
-                } else {
-                    $queryBuilder->setParameter($columnName, $value);
-                }
-            }
-        }
-
-        if (count($orderBy) > 0) {
-            foreach ($orderBy as $fieldName => $orientation) {
-                $queryBuilder->orderBy("q.$fieldName", $orientation);
-            }
-        }
-
-        if (null !== $limit) {
-            $queryBuilder->setMaxResults($limit);
-        }
-
-        if (null !== $offset) {
-            $queryBuilder->setFirstResult($offset);
-        }
-
-        $query = $queryBuilder->getQuery();
-        $this->setCacheStrategy($query);
-
-        return $query;
-    }
-
-    /**
      * Finds a single object by a set of criteria.
      *
      * @param array $criteria The criteria.
@@ -245,11 +222,23 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
     }
 
     /**
-     * @return string
+     * Creates a new QueryBuilder instance that is pre populated for this
+     * entity name.
+     *
+     * @param string $alias
+     * @param string $indexBy The index for the from.
+     *
+     * @return QueryBuilder
      */
-    protected function getEntityName()
+    public function createQueryBuilder($alias, $indexBy = null)
     {
-        return $this->entityName;
+        $queryBuilder = $this
+            ->entityManager
+            ->createQueryBuilder()
+            ->select($alias)
+            ->from($this->entityName, $alias, $indexBy);
+
+        return $queryBuilder;
     }
 
     /**
@@ -313,9 +302,9 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
      * @return array|object The found entity/entities.
      *
      * @throws ORMException
-     * @throws \BadMethodCallException If the method called is an invalid find* method
-     *                                 or no find* method at all and therefore an invalid
-     *                                 method call.
+     * @throws \BadMethodCallException If the method called is an invalid find*
+     *                                 method or no find* method at all and
+     *                                 therefore an invalid method call.
      */
     public function __call($method, $arguments)
     {
@@ -385,6 +374,75 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
             $fieldName,
             $method.$findBy
         );
+    }
+
+    /**
+     * @param QueryBuilder $queryBuilder
+     * @param array        $criteria
+     * @param array        $orderBy
+     * @param int|null     $limit
+     * @param int|null     $offset
+     *
+     * @return Query
+     */
+    protected function createQueryWith(
+        QueryBuilder $queryBuilder,
+        array $criteria,
+        array $orderBy = [],
+        $limit = null,
+        $offset = null
+    ) {
+        if (count($criteria) > 0) {
+            $wherePredicates = $this
+                ->predicateBuilder
+                ->build(
+                    $queryBuilder,
+                    $criteria
+                );
+
+            $queryBuilder = $this
+                ->createQueryBuilder('q')
+                ->where($wherePredicates);
+
+            foreach ($criteria as $columnName => $value) {
+                if (is_array($value)) {
+                    $queryBuilder->setParameter(
+                        $columnName,
+                        $value,
+                        \Doctrine\DBAL\Connection::PARAM_STR_ARRAY
+                    );
+                } else {
+                    $queryBuilder->setParameter($columnName, $value);
+                }
+            }
+        }
+
+        if (count($orderBy) > 0) {
+            foreach ($orderBy as $fieldName => $orientation) {
+                $queryBuilder->orderBy("q.$fieldName", $orientation);
+            }
+        }
+
+        if (null !== $limit) {
+            $queryBuilder->setMaxResults($limit);
+        }
+
+        if (null !== $offset) {
+            $queryBuilder->setFirstResult($offset);
+        }
+
+        $query = $queryBuilder->getQuery();
+        $this->setCacheStrategy($query);
+
+        return $query;
+    }
+
+    /**
+     * @return string
+     */
+    protected function getEntityName()
+    {
+        return $this->entityName;
     }
 
     /**
