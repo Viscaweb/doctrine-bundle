@@ -7,6 +7,8 @@ use Doctrine\DBAL\Platforms\AbstractPlatform;
 
 /**
  * A set of rules for determining the physical column, alias and table quotes
+ *
+ * @link https://gist.github.com/Thinkscape/6713196
  */
 class EagerQuoteStrategy implements QuoteStrategy
 {
