@@ -2,8 +2,9 @@
 
 namespace Visca\Bundle\DoctrineBundle\Query\QuoteStrategy;
 
-use Doctrine\ORM\Mapping\ClassMetadata;
 use Doctrine\DBAL\Platforms\AbstractPlatform;
+use Doctrine\ORM\Mapping\ClassMetadata;
+use Doctrine\ORM\Mapping\QuoteStrategy;
 
 /**
  * A set of rules for determining the physical column, alias and table quotes
