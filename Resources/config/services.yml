@@ -51,6 +51,10 @@ services:
     visca_doctrine.query.query_builder.predicate_builder:
         class: Visca\Bundle\DoctrineBundle\Query\QueryBuilder\PredicateBuilder
 
+    # Quote strategies
+    visca_doctrine.quote_strategy.eager:
+        class: Visca\Bundle\DoctrineBundle\Query\QuoteStrategy\EagerQuoteStrategy
+
     # ------------------------------------------------------
     # CACHING - THIS SHOULD BE SPLITTED INTO ANOTHER PACKAGE
     # ------------------------------------------------------
