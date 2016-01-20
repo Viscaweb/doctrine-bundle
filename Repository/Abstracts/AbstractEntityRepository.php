@@ -326,13 +326,13 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
      *
      * @return int
      */
-    public function countById(
+    public function countManyById(
         $columnName,
         $columnId,
         $extraCriteria = [],
         $timeToLive = 1
     ) {
-        $entries = $this->countByIds(
+        $entries = $this->countManyByIds(
             $columnName,
             [$columnId],
             $extraCriteria,
@@ -356,7 +356,7 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
      *
      * @return int[]
      */
-    public function countByIds(
+    public function countManyByIds(
         $columnName,
         $columnIds,
         $extraCriteria = [],
