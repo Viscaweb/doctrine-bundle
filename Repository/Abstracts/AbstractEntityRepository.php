@@ -678,6 +678,7 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
         }
 
         return $results;
+    }
 
     /*
      * @param ResultCachingStrategyInterface $resultCaching
