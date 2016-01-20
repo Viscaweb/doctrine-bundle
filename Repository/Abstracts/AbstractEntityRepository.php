@@ -2,6 +2,7 @@
 
 namespace Visca\Bundle\DoctrineBundle\Repository\Abstracts;
 
+use Doctrine\Common\Cache\Cache;
 use Doctrine\Common\Collections\Criteria;
 use Doctrine\Common\Collections\Selectable;
 use Doctrine\Common\Persistence\ObjectRepository;
@@ -13,6 +14,7 @@ use Doctrine\ORM\ORMException;
 use Doctrine\ORM\ORMInvalidArgumentException;
 use Doctrine\ORM\Query;
 use Doctrine\ORM\QueryBuilder;
+use Visca\Bundle\DoctrineBundle\Model\Cache\CountResultModel;
 use Visca\Bundle\DoctrineBundle\Query\QueryBuilder\Interfaces\PredicateBuilderInterface;
 use Visca\Bundle\DoctrineBundle\Repository\Caching\Interfaces\ResultCachingStrategyInterface;
 
@@ -67,6 +69,31 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
         $this->class = $class;
         $this->resultCaching = $resultCaching;
         $this->predicateBuilder = $predicateBuilder;
+    }
+
+    /**
+     * @var Cache|null
+     */
+    protected $resultCacheDriver;
+
+    /**
+     * @return Cache|null
+     */
+    public function getResultCacheDriver()
+    {
+        return $this->resultCacheDriver;
+    }
+
+    /**
+     * @param Cache $resultCacheDriver
+     *
+     * @return AbstractEntityRepository
+     */
+    public function setResultCacheDriver($resultCacheDriver)
+    {
+        $this->resultCacheDriver = $resultCacheDriver;
+
+        return $this;
     }
 
     /**
@@ -292,6 +319,133 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
     }
 
     /**
+     * @param string $columnName    Name of the column we want to filter on.
+     * @param int    $columnId      ID we want to look for.
+     * @param array  $extraCriteria Extra filters.
+     * @param int    $timeToLive    Cache time to live, 0 is infinite.
+     *
+     * @return int
+     */
+    public function countById(
+        $columnName,
+        $columnId,
+        $extraCriteria = [],
+        $timeToLive = 1
+    ) {
+        $entries = $this->countByIds(
+            $columnName,
+            [$columnId],
+            $extraCriteria,
+            $timeToLive
+        );
+
+        return $entries[$columnId];
+    }
+
+    /**
+     * Returns the number of results for the given $columnIds.
+     *
+     * For each ID, this method will try to get the results from it's cache.
+     * If some results are not in cache, it will run 1 query to count all
+     * and put the results in cache automatically.
+     *
+     * @param string $columnName    Name of the column we want to filter on.
+     * @param int[]  $columnIds     IDs we want to look for.
+     * @param array  $extraCriteria Extra filters.
+     * @param int    $timeToLive    Cache time to live, 0 is infinite.
+     *
+     * @return int[]
+     */
+    public function countByIds(
+        $columnName,
+        $columnIds,
+        $extraCriteria = [],
+        $timeToLive = 1
+    ) {
+        $resultCacheDriver = $this->getResultCacheDriver();
+        /** @var CountResultModel[] $entries */
+        $entries = [];
+
+        /*
+         * First of all, initialize all the entities we want to check.
+         */
+        foreach ($columnIds as $entityId) {
+            $entityCriteria = array_merge(
+                $extraCriteria,
+                [$columnName => $entityId]
+            );
+            $entityCacheKey = $this->getCacheKeyForCount(
+                $columnName,
+                $entityCriteria
+            );
+            $entries[] = new CountResultModel($entityId, $entityCacheKey);
+        }
+
+        /*
+         * For each of them, verify if we have cache available or not.
+         */
+        $idsNotInCache = [];
+        if (!is_null($resultCacheDriver)) {
+            foreach ($entries as $entry) {
+                if ($resultCacheDriver->contains($entry->getCacheKey())) {
+                    $entry->setCacheExists(CountResultModel::CACHE_EXISTS);
+                } else {
+                    $idsNotInCache[] = $entry->getEntityId();
+                }
+            }
+        }
+
+        /*
+         * Then, make a single query for the entities not in cache yet.
+         */
+        if (!empty($idsNotInCache)) {
+            $rawResults = $this->rawCountByIds(
+                $columnName,
+                $idsNotInCache,
+                $extraCriteria
+            );
+            foreach ($entries as $entry) {
+                $entryCacheExists = $entry->getCacheExists();
+                if ($entryCacheExists === CountResultModel::CACHE_EXISTS) {
+                    continue;
+                }
+                /* Find if the raw results contains a value for this entry */
+                $entityId = $entry->getEntityId();
+                $entryValue = isset($rawResults[$entityId]) ? $rawResults[$entityId] : 0;
+                $entry
+                    ->setCacheExists(CountResultModel::CACHE_NEWLY_CREATED)
+                    ->setValue($entryValue);
+            }
+        }
+
+        /*
+         * Save those new entries in cache
+         */
+        if (!is_null($resultCacheDriver)) {
+            foreach ($entries as $entry) {
+                $entryCache = $entry->getCacheExists();
+                if ($entryCache === CountResultModel::CACHE_NEWLY_CREATED) {
+                    $resultCacheDriver->save(
+                        $entry->getCacheKey(),
+                        $entry->getValue(),
+                        $timeToLive
+                    );
+                }
+            }
+        }
+
+        /*
+         * Return the final results
+         */
+        $rawResults = [];
+        foreach ($entries as $entry) {
+            $rawResults[$entry->getEntityId()] = $entry->getValue();
+        }
+
+        return $rawResults;
+    }
+
+    /**
      * @deprecated Will be removed soon
      *
      * Adds support for magic finders.
@@ -457,4 +611,73 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
             );
         }
     }
+
+    /**
+     * @param string $columnName
+     * @param mixed  $criteria
+     *
+     * @return string
+     */
+    private function getCacheKeyForCount(
+        $columnName,
+        $criteria
+    ) {
+        return sprintf(
+            'doctrine_count_%s_%d',
+            $columnName,
+            md5(serialize($criteria))
+        );
+    }
+
+    /**
+     * @param string $countColumnName
+     * @param int[]  $countElementsIds
+     * @param array  $countExtraCriteria
+     *
+     * @return int[]
+     */
+    private function rawCountByIds(
+        $countColumnName,
+        $countElementsIds,
+        $countExtraCriteria
+    ) {
+        /** @var QueryBuilder $queryBuilder */
+        $queryBuilder = $this->createQueryBuilder('q');
+
+        $queryBuilder
+            ->select($queryBuilder->expr()->count('q'))
+            ->addSelect("IDENTITY(q.$countColumnName)");
+
+        $wherePredicates = $queryBuilder
+            ->expr()
+            ->andX();
+
+        $criteria = array_merge(
+            $countExtraCriteria,
+            [$countColumnName => $countElementsIds]
+        );
+        foreach ($criteria as $criteriaColumnName => $criteriaValues) {
+            $wherePredicate = $queryBuilder
+                ->expr()
+                ->in("q.$criteriaColumnName", ":$criteriaColumnName");
+            $wherePredicates->add($wherePredicate);
+        }
+
+        $query = $queryBuilder
+            ->where($wherePredicates)
+            ->setParameters($criteria)
+            ->groupBy("q.$countColumnName")
+            ->getQuery();
+
+        $rawResults = $query->getArrayResult();
+        $results = [];
+        foreach ($rawResults as $result) {
+            $resultCountValue = $result[1];
+            $resultEntityId = $result[2];
+            $results[$resultEntityId] = $resultCountValue;
+        }
+
+        return $results;
+    }
+
 }
