@@ -9,6 +9,7 @@ use Doctrine\Common\Persistence\ObjectRepository;
 use Doctrine\ORM\EntityManager;
 use Doctrine\ORM\LazyCriteriaCollection;
 use Doctrine\ORM\Mapping\ClassMetadata;
+use Doctrine\ORM\Mapping\MappingException;
 use Doctrine\ORM\NoResultException;
 use Doctrine\ORM\ORMException;
 use Doctrine\ORM\ORMInvalidArgumentException;
@@ -385,13 +386,11 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
          * For each of them, verify if we have cache available or not.
          */
         $idsNotInCache = [];
-        if (!is_null($resultCacheDriver)) {
-            foreach ($entries as $entry) {
-                if ($resultCacheDriver->contains($entry->getCacheKey())) {
-                    $entry->setCacheExists(CountResultModel::CACHE_EXISTS);
-                } else {
-                    $idsNotInCache[] = $entry->getEntityId();
-                }
+        foreach ($entries as $entry) {
+            if (!is_null($resultCacheDriver) && $resultCacheDriver->contains($entry->getCacheKey())) {
+                $entry->setCacheExists(CountResultModel::CACHE_EXISTS);
+            } else {
+                $idsNotInCache[] = $entry->getEntityId();
             }
         }
 
@@ -644,9 +643,17 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
         /** @var QueryBuilder $queryBuilder */
         $queryBuilder = $this->createQueryBuilder('q');
 
+        try {
+            $map = $this->class->getAssociationMapping($countColumnName);
+            $useIdentity = true;
+        } catch (MappingException $e) {
+            $useIdentity = false;
+        }
+
+
         $queryBuilder
             ->select($queryBuilder->expr()->count('q'))
-            ->addSelect("IDENTITY(q.$countColumnName)");
+            ->addSelect($useIdentity ? "IDENTITY(q.$countColumnName)" : "q.$countColumnName");
 
         $wherePredicates = $queryBuilder
             ->expr()
@@ -672,8 +679,9 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
         $rawResults = $query->getArrayResult();
         $results = [];
         foreach ($rawResults as $result) {
+            $keys = array_keys($result);
             $resultCountValue = $result[1];
-            $resultEntityId = $result[2];
+            $resultEntityId = $result[$keys[1]];
             $results[$resultEntityId] = $resultCountValue;
         }
 
