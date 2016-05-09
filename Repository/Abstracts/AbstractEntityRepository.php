@@ -73,28 +73,11 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
     }
 
     /**
-     * @var Cache|null
-     */
-    protected $resultCacheDriver;
-
-    /**
      * @return Cache|null
      */
     public function getResultCacheDriver()
     {
-        return $this->resultCacheDriver;
-    }
-
-    /**
-     * @param Cache $resultCacheDriver
-     *
-     * @return AbstractEntityRepository
-     */
-    public function setResultCacheDriver($resultCacheDriver)
-    {
-        $this->resultCacheDriver = $resultCacheDriver;
-
-        return $this;
+        return $this->entityManager->getConfiguration()->getResultCacheImpl();
     }
 
     /**
