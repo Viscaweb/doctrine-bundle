@@ -72,6 +72,14 @@ services:
             - true
             - 60
 
+    visca_doctrine.repository.caching.five_minute:
+        class: Visca\Bundle\DoctrineBundle\Repository\Caching\CacheStrategy
+        factory_service: visca_doctrine.repository.caching.factory.result_caching_strategy
+        factory_method: create
+        arguments:
+            - true
+            - 300
+
     visca_doctrine.repository.caching.one_year:
         class: Visca\Bundle\DoctrineBundle\Repository\Caching\CacheStrategy
         factory_service: visca_doctrine.repository.caching.factory.result_caching_strategy
