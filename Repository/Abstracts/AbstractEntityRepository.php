@@ -605,7 +605,7 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
         $criteria
     ) {
         return sprintf(
-            'doctrine_count_%s_%d',
+            'doctrine_count_%s_%s',
             $columnName,
             md5(serialize($criteria))
         );
