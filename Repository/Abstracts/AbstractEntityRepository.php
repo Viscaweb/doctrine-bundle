@@ -372,6 +372,7 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
         foreach ($entries as $entry) {
             if (!is_null($resultCacheDriver) && $resultCacheDriver->contains($entry->getCacheKey())) {
                 $entry->setCacheExists(CountResultModel::CACHE_EXISTS);
+                $entry->setValue($resultCacheDriver->fetch($entry->getCacheKey()));
             } else {
                 $idsNotInCache[] = $entry->getEntityId();
             }
