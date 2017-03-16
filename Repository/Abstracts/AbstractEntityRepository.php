@@ -182,12 +182,14 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
      */
     public function findBy(
         array $criteria,
-        array $orderBy = [],
+        array $orderBy = null,
         $limit = null,
         $offset = null
     ) {
         $queryBuilder = $this
             ->createQueryBuilder('q');
+
+        $orderBy = $orderBy === null ? [] : $orderBy;
 
         $query = $this->createQueryWith(
             $queryBuilder,
