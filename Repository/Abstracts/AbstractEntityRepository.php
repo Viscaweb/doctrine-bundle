@@ -3,6 +3,7 @@
 namespace Visca\Bundle\DoctrineBundle\Repository\Abstracts;
 
 use Doctrine\Common\Cache\Cache;
+use Doctrine\Common\Cache\CacheProvider;
 use Doctrine\Common\Collections\Criteria;
 use Doctrine\Common\Collections\Selectable;
 use Doctrine\Common\Persistence\ObjectRepository;
@@ -73,7 +74,7 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
     }
 
     /**
-     * @return Cache|null
+     * @return CacheProvider|null
      */
     public function getResultCacheDriver()
     {
@@ -364,21 +365,29 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
                 $columnName,
                 $entityCriteria
             );
-            $entries[] = new CountResultModel($entityId, $entityCacheKey);
+            $entries[$entityCacheKey] = new CountResultModel($entityId, $entityCacheKey);
         }
 
         /*
          * For each of them, verify if we have cache available or not.
          */
         $idsNotInCache = [];
-        foreach ($entries as $entry) {
-            if (!is_null($resultCacheDriver) && $resultCacheDriver->contains($entry->getCacheKey())) {
-                $entry->setCacheExists(CountResultModel::CACHE_EXISTS);
-                $entry->setValue($resultCacheDriver->fetch($entry->getCacheKey()));
-            } else {
-                $idsNotInCache[] = $entry->getEntityId();
-            }
+
+        /** @var string[] $keys */
+        $keys = array_map(
+            function (CountResultModel $entry) {
+                return $entry->getCacheKey();
+            },
+            $entries
+        );
+
+        $valuesInCache = $resultCacheDriver->fetchMultiple($keys);
+        foreach ($valuesInCache as $key => $valueInCache) {
+            $entries[$key]->setCacheExists(CountResultModel::CACHE_EXISTS);
+            $entries[$key]->setValue($valueInCache);
         }
+
+        $idsNotInCache = array_diff_key($entries, $valuesInCache);
 
         /*
          * Then, make a single query for the entities not in cache yet.
@@ -621,7 +630,7 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
      *
      * @return int[]
      */
-    private function rawCountByIds(
+    public function rawCountByIds(
         $countColumnName,
         $countElementsIds,
         $countExtraCriteria
