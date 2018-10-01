@@ -388,6 +388,9 @@ abstract class AbstractEntityRepository implements ObjectRepository, Selectable
         }
 
         $idsNotInCache = array_diff_key($entries, $valuesInCache);
+        $idsNotInCache = array_map(function (CountResultModel $item) {
+            return $item->getValue();
+        }, $idsNotInCache);
 
         /*
          * Then, make a single query for the entities not in cache yet.
